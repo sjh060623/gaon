@@ -1,6 +1,6 @@
 'use client';
-import {useState,useEffect,useMemo,useRef} from 'react';
-import {ArrowUpRight,ArrowRight,Plus,Info,Share2,Check,LoaderCircle,Equal,Clock3,MapPin,SlidersHorizontal} from 'lucide-react';
+import {useState,useEffect,useMemo,useRef,useCallback} from 'react';
+import {ArrowUpRight,ArrowRight,Plus,Info,Share2,Check,LoaderCircle,Equal,Clock3,SlidersHorizontal} from 'lucide-react';
 import {SEARCH_DEMO_PLACES,COLORS,demoResults,rankResults,validatePeople} from '@/lib/meet.mjs';
 import PersonInput from '@/components/meet/PersonInput';
 import AreaMap from '@/components/meet/AreaMap';
@@ -9,7 +9,7 @@ import {naverSearchLink} from '@/lib/naver-links.mjs';
 const emptyPeople=()=>[{id:'a',name:'나',mode:'transit',place:null},{id:'b',name:'친구 1',mode:'transit',place:null}];
 function glassLight(e){if(e.pointerType!=='mouse')return;const box=e.currentTarget.getBoundingClientRect();e.currentTarget.style.setProperty('--shine-x',`${((e.clientX-box.left)/box.width)*100}%`);e.currentTarget.style.setProperty('--shine-y',`${((e.clientY-box.top)/box.height)*100}%`);}
 export default function Home(){
- const [people,setPeople]=useState(emptyPeople),[results,setResults]=useState([]),[source,setSource]=useState('live'),[objective,setObjective]=useState('fair'),[limit,setLimit]=useState(90),[selectedId,setSelectedId]=useState(null),[dirty,setDirty]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[filters,setFilters]=useState(false),[showMap,setShowMap]=useState(false),[config,setConfig]=useState(null),[shared,setShared]=useState(false),[meta,setMeta]=useState(null),[formVersion,setFormVersion]=useState(0);
+ const [people,setPeople]=useState(emptyPeople),[results,setResults]=useState([]),[source,setSource]=useState('live'),[objective,setObjective]=useState('fair'),[limit,setLimit]=useState(90),[selectedId,setSelectedId]=useState(null),[dirty,setDirty]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[filters,setFilters]=useState(false),[config,setConfig]=useState(null),[shared,setShared]=useState(false),[meta,setMeta]=useState(null),[formVersion,setFormVersion]=useState(0);
  const resultRef=useRef(null),requestId=useRef(0),controller=useRef(null),shareTimer=useRef(null);
  useEffect(()=>{
   fetch('/api/status').then(r=>r.json()).then(setConfig).catch(()=>{});
@@ -19,13 +19,14 @@ export default function Home(){
  const ranked=useMemo(()=>rankResults(results,objective,limit),[results,objective,limit]);
  const selected=ranked.find(r=>r.place.id===selectedId)||ranked[0];
  const showResults=busy||(!dirty&&results.length>0);
- function invalidate(){requestId.current++;controller.current?.abort();setBusy(false);setDirty(true);setSelectedId(null);setError('');setMeta(null);setShared(false);setShowMap(false);}
+ const selectPlace=useCallback(id=>setSelectedId(id),[]);
+ function invalidate(){requestId.current++;controller.current?.abort();setBusy(false);setDirty(true);setSelectedId(null);setError('');setMeta(null);setShared(false);}
  function changePerson(index,person){const previous=people[index];if(previous.mode!==person.mode||previous.place!==person.place)invalidate();setPeople(v=>v.map((p,i)=>i===index?person:p));}
  function currentPosition(id,place){invalidate();setSource('live');setPeople(v=>v.map(p=>p.id===id?{...p,place}:source==='demo'?{...p,place:null}:p));}
  function reset(){invalidate();setPeople(emptyPeople());setSource('live');setResults([]);setObjective('fair');setLimit(90);setFilters(false);setFormVersion(v=>v+1);history.replaceState(null,'',location.pathname);}
  async function find(){
-  setError('');let valid;try{valid=validatePeople(people);}catch(e){setError(e.message);return;}
-  const id=++requestId.current;controller.current?.abort();const abort=new AbortController();controller.current=abort;setBusy(true);setShowMap(false);
+  document.activeElement?.blur();setError('');let valid;try{valid=validatePeople(people);}catch(e){setError(e.message);return;}
+  const id=++requestId.current;controller.current?.abort();const abort=new AbortController();controller.current=abort;setBusy(true);
   try{let data;
    if(source==='demo')data={results:demoResults(valid)};
    else{const response=await fetch('/api/meet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({people:valid}),signal:abort.signal});data=await response.json();if(!response.ok)throw new Error(data.error||'경로를 찾지 못했습니다.');}
@@ -52,9 +53,9 @@ export default function Home(){
      <button type="button" className="find-button" onClick={find} disabled={busy||people.some(p=>!p.place)}>{busy?<><LoaderCircle size={18} className="spin"/>이동시간 비교 중</>:<>만날 장소 찾기 <ArrowRight size={19}/></>}</button>
     </section>
     {showResults?<section className="results-panel glass" ref={resultRef} onPointerMove={glassLight} aria-labelledby="results-heading" aria-busy={busy}>
-     <div className="panel-heading"><h2 id="results-heading">추천 장소{!busy&&ranked.length?<span className="result-count">{ranked.length}</span>:null}</h2>{!busy&&selected?<button type="button" className={`map-toggle ${showMap?'active':''}`} onClick={()=>setShowMap(v=>!v)} aria-expanded={showMap}><MapPin size={14}/>{showMap?'위치 닫기':'위치 보기'}</button>:null}</div>
+     <div className="panel-heading"><h2 id="results-heading">추천 장소{!busy&&ranked.length?<span className="result-count">{ranked.length}</span>:null}</h2></div>
      {busy?<div className="loading-state" role="status"><div className="loading-orbit"><LoaderCircle size={28} className="spin"/></div><strong>모두의 이동시간을 비교하고 있어요.</strong><span>도보와 환승까지 함께 계산합니다.</span><button type="button" onClick={()=>{invalidate();}}>취소</button></div>:!ranked.length?<div className="no-results"><Clock3 size={26}/><strong>{limit}분 안에 갈 수 있는 곳이 없어요.</strong><button onClick={()=>{setLimit(120);setFilters(true);}}>최대 120분으로 늘리기 <ArrowRight size={14}/></button></div>:<>
-      {showMap?<AreaMap people={people} selected={selected} dirty={false} source={source}/>:null}
+      <AreaMap people={people} selected={selected} results={ranked} onSelect={selectPlace}/>
       <div className="candidate-list">{ranked.slice(0,3).map((r,index)=><button type="button" key={r.place.id} className={`candidate ${selected?.place.id===r.place.id?'chosen':''}`} aria-pressed={selected?.place.id===r.place.id} onClick={()=>setSelectedId(r.place.id)}><span className="candidate-rank">{selected?.place.id===r.place.id?<Check size={14}/>:index+1}</span><span className="candidate-content"><span className="candidate-name">{r.place.name}{index===0?<span className="best-tag">추천</span>:null}</span><span className="candidate-times">{r.routes.map((route,i)=><span key={route.personId}><i style={{background:COLORS[i]}}/><span>{people.find(p=>p.id===route.personId)?.name||`친구 ${i}`}</span><strong>{route.minutes}<small>분</small></strong></span>)}</span></span><span className="time-spread"><span>시간 차이</span><strong>{r.spread}<small>분</small></strong></span></button>)}</div>
       <RouteJourneys key={selected.place.id} selected={selected} people={people} source={source}/>
       <div className="result-actions"><a className="destination-button" href={naverSearchLink(selected.place)} target="_blank" rel="noreferrer">지도에서 보기 <ArrowUpRight size={16}/></a><button type="button" className={`share-button ${shared?'copied':''}`} onClick={share}>{shared?<Check size={15}/>:<Share2 size={15}/>} {shared?'복사했어요':'친구에게 공유'}</button></div>
